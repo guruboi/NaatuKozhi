@@ -20,7 +20,8 @@ const FarmerTestimonials: React.FC = () => {
   const [loadedImages, setLoadedImages] = useState<Set<number>>(new Set())
   const [isPaused, setIsPaused] = useState(false)
   const autoScrollRef = useRef<NodeJS.Timeout | null>(null)
-  const lastManualScrollTime = useRef<number>(0)
+  const currentStepRef = useRef<number>(0)
+  const isAutoScrollingRef = useRef<boolean>(false)
 
   const farmers: Farmer[] = [
     {
@@ -77,32 +78,52 @@ const FarmerTestimonials: React.FC = () => {
   const infiniteFarmers = [...farmers, ...farmers, ...farmers, ...farmers, ...farmers, ...farmers]
   const CARD_WIDTH = 350 // Increased from 344 to ensure full card movement
 
-  // Auto-scroll with better infinite loop handling
+  // Step-by-step auto-scroll with smooth speed ramps
+  const performAutoScroll = useCallback(() => {
+    if (!scrollRef.current || isPaused || isAutoScrollingRef.current) return
+    
+    isAutoScrollingRef.current = true
+    const container = scrollRef.current
+    const totalWidth = container.scrollWidth
+    const singleSetWidth = totalWidth / 6
+    
+    console.log('🚀 Starting smooth auto-scroll step')
+    
+    // Check boundaries before scrolling
+    if (container.scrollLeft >= singleSetWidth * 3.5) {
+      const positionInSet = container.scrollLeft % singleSetWidth
+      container.scrollLeft = singleSetWidth + positionInSet
+      console.log('🔄 Boundary reset performed')
+    }
+    
+    // Smooth scroll one card width with ease-in-out
+    container.scrollTo({
+      left: container.scrollLeft + CARD_WIDTH,
+      behavior: 'smooth'
+    })
+    
+    // Move to next step
+    currentStepRef.current = (currentStepRef.current + 1) % farmers.length
+    
+    // Reset auto-scroll flag after animation completes
+    setTimeout(() => {
+      isAutoScrollingRef.current = false
+      console.log('✅ Auto-scroll step completed')
+    }, 800) // Match smooth scroll duration
+    
+  }, [isPaused, CARD_WIDTH, farmers.length])
+
+  // Start step-by-step auto-scroll with intervals
   const startAutoScroll = useCallback(() => {
     if (autoScrollRef.current) clearInterval(autoScrollRef.current)
     
+    // Perform auto-scroll every 3 seconds (adjust as needed)
     autoScrollRef.current = setInterval(() => {
-      if (scrollRef.current && !isPaused) {
-        const container = scrollRef.current
-        const totalWidth = container.scrollWidth
-        const singleSetWidth = totalWidth / 6 // Now we have 6 copies
-        const currentScroll = container.scrollLeft
-        const now = Date.now()
-        
-        // Only auto-scroll if no recent manual interaction (last 200ms)
-        if (now - lastManualScrollTime.current > 200) {
-          container.scrollLeft += 1
-          
-          // More robust boundary detection - reset when past middle (3rd set)
-          if (currentScroll >= singleSetWidth * 3.5) {
-            // Smooth reset to equivalent position in 2nd set
-            const positionInSet = currentScroll % singleSetWidth
-            container.scrollLeft = singleSetWidth + positionInSet
-          }
-        }
-      }
-    }, 16)
-  }, [isPaused])
+      performAutoScroll()
+    }, 3000) // 3 second intervals between steps
+    
+    console.log('🎬 Step-by-step auto-scroll started (3s intervals)')
+  }, [performAutoScroll])
 
   // Start auto-scroll on mount
   useEffect(() => {
@@ -112,13 +133,19 @@ const FarmerTestimonials: React.FC = () => {
     }
   }, [startAutoScroll])
 
-  // Manual scroll with better boundary handling
+  // Simple manual scroll - no conflicts with step-by-step auto-scroll
   const handleScroll = useCallback((direction: 'left' | 'right') => {
-    console.log('🔥 Button clicked:', direction)
+    console.log('🔥 Manual button clicked:', direction)
     
     if (!scrollRef.current) {
       console.log('❌ No scroll ref')
       return
+    }
+    
+    // Temporarily pause auto-scroll for manual interaction
+    if (autoScrollRef.current) {
+      clearInterval(autoScrollRef.current)
+      console.log('⏸️ Auto-scroll paused for manual interaction')
     }
     
     const container = scrollRef.current
@@ -127,35 +154,39 @@ const FarmerTestimonials: React.FC = () => {
     const singleSetWidth = totalWidth / 6
     const moveAmount = direction === 'right' ? CARD_WIDTH : -CARD_WIDTH
     
-    // Record the manual interaction time
-    lastManualScrollTime.current = Date.now()
-    
-    // Check if we need to handle boundaries for manual scroll
-    let targetScroll = currentScroll + moveAmount
-    
-    if (direction === 'right' && targetScroll >= singleSetWidth * 4) {
-      // If going too far right, wrap to earlier position
+    // Handle boundaries for manual scroll
+    let needsReset = false
+    if (direction === 'right' && currentScroll >= singleSetWidth * 4) {
       const positionInSet = currentScroll % singleSetWidth
       container.scrollLeft = singleSetWidth + positionInSet
-      targetScroll = container.scrollLeft + moveAmount
-    } else if (direction === 'left' && targetScroll < singleSetWidth) {
-      // If going too far left, wrap to later position
+      needsReset = true
+    } else if (direction === 'left' && currentScroll < singleSetWidth) {
       const positionInSet = currentScroll % singleSetWidth
       container.scrollLeft = singleSetWidth * 3 + positionInSet
-      targetScroll = container.scrollLeft + moveAmount
+      needsReset = true
     }
     
-    console.log('📍 Current:', currentScroll, 'Move:', moveAmount, 'Expected target:', targetScroll)
-    console.log('⏰ Manual scroll timestamp recorded - auto-scroll will pause for 200ms')
+    if (needsReset) {
+      console.log('🔄 Manual boundary reset performed')
+    }
     
-    // Execute the scroll
+    console.log('📍 Manual scroll - Move:', moveAmount)
+    
+    // Execute smooth manual scroll
     container.scrollBy({
       left: moveAmount,
       behavior: 'smooth'
     })
     
-    console.log('✅ Scroll command sent (auto-scroll continues)')
-  }, [CARD_WIDTH])
+    console.log('✅ Manual scroll executed')
+    
+    // Resume auto-scroll after manual interaction (2 seconds delay)
+    setTimeout(() => {
+      startAutoScroll()
+      console.log('▶️ Auto-scroll resumed after manual interaction')
+    }, 2000)
+    
+  }, [CARD_WIDTH, startAutoScroll])
 
   // Intersection Observer for lazy loading
   useEffect(() => {
@@ -215,7 +246,7 @@ const FarmerTestimonials: React.FC = () => {
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center space-x-2 text-gray-600">
             <span className="text-sm font-medium">
-              {isPaused ? 'Paused' : 'Auto-scrolling'}
+              {isPaused ? 'Paused' : 'Auto-scrolling every 3s'}
             </span>
             <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
               isPaused ? 'bg-gray-400' : 'bg-primary-600 animate-pulse'
